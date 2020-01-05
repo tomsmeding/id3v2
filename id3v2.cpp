@@ -71,23 +71,57 @@ void PrintVersion(char *sName)
 }
 
 
+// Returns number of wide characters in the parsed string.
+size_t ParseUTF8(wchar_t **destp, const char *text)
+{
+  size_t textLen = strlen(text);
+  wchar_t *wideText = new wchar_t[textLen + 1];
+  size_t cursor = 0;
+
+#define COMBINE(b1, b2, b3, b4) ((1<<18)*(b1) + (1<<12)*(b2) + (1<<6)*(b3) + (b4))
+#define CONTINUES(i) (i < textLen && (text[(i)] & 0xc0) == 0x80)
+
+  for (size_t i = 0; i < textLen; i++)
+  {
+    if ((text[i] & 0x80) == 0) {
+      wideText[cursor++] = text[i];
+    } else if ((text[i] & 0xe0) == 0xc0 && CONTINUES(i+1)) {
+      wideText[cursor++] = COMBINE(0, 0, text[i]&0x1f, text[i+1]&0x3f);
+      i += 1;
+    } else if ((text[i] & 0xf0) == 0xe0 && CONTINUES(i+1) && CONTINUES(i+2)) {
+      wideText[cursor++] = COMBINE(0, text[i]&0x0f, text[i+1]&0x3f, text[i+2]&0x3f);
+      i += 2;
+    } else if ((text[i] & 0xf8) == 0xf0 && CONTINUES(i+1) && CONTINUES(i+2) && CONTINUES(i+3)) {
+      wideText[cursor++] = COMBINE(text[i]&0x07, text[i+1]&0x3f, text[i+2]&0x3f, text[i+3]&0x3f);
+      i += 3;
+    } else {
+      std::cerr << "Invalid UTF-8 byte sequence in text '" << text << "'!" << std::endl;
+      std::cerr << cursor << ' ' << (unsigned)(unsigned char)text[cursor] << std::endl;
+      exit(1);
+    }
+  }
+
+#undef CONTINUES
+#undef COMBINE
+
+  wideText[cursor] = 0;
+
+  *destp = wideText;
+  return cursor;
+}
+
+
 void SetTextField(ID3_Frame *frame, ID3_FieldID fieldID, const char *text)
 {
   const size_t textLen = strlen(text);
-  wchar_t *wideText = new wchar_t[textLen + 1];
-
-  size_t wideLen = mbstowcs(wideText, text, textLen + 1);
-
-  if (wideLen == -1)
-  {
-    std::cerr << "Invalid multibyte string '" << text << "'!" << std::endl;
-    exit(1);
-  }
+  wchar_t *wideText;
+  size_t wideLen = ParseUTF8(&wideText, text);
 
   bool ucs2Necessary = false;
 
   for (size_t i = 0; i < wideLen; i++)
   {
+    std::cerr << "(multibyte character " << wideText[i] << ")" << std::endl;
     if (wideText[i] >= (1 << 16)) {
       char buffer[MB_LEN_MAX + 1];
       size_t len = wctomb(buffer, wideText[i]);
@@ -110,18 +144,28 @@ void SetTextField(ID3_Frame *frame, ID3_FieldID fieldID, const char *text)
 
   if (ucs2Necessary)
   {
-    uint16_t *ucs2Text = new uint16_t[wideLen + 1];
+    uint16 *ucs2Text = new uint16[wideLen + 1];
     for (size_t i = 0; i < wideLen; i++)
-      ucs2Text[i] = (uint16_t)wideText[i];
-	ucs2Text[wideLen] = 0;
+      ucs2Text[i] = (uint16)wideText[i];
+    ucs2Text[wideLen] = 0;
 
-    frame->Field(fieldID) = ucs2Text;
+    std::cerr << "Storing multibyte string in field with id " << fieldID << ": [";
+    for (size_t i = 0; i < wideLen; i++)
+      std::cerr << ucs2Text[i] << ' ';
+    std::cerr << "]" << std::endl;
+
+    ID3_Field &field = frame->Field(fieldID);
+    field.SetEncoding(ID3TE_UNICODE);
+    field.Set(ucs2Text);
 
     delete[] ucs2Text;
   }
   else
   {
-    frame->Field(fieldID) = text;
+    std::cerr << "Storing latin-1 string in field with id " << fieldID << ": " << text << std::endl;
+    ID3_Field &field = frame->Field(fieldID);
+    field.SetEncoding(ID3TE_ASCII);
+    field.Set(text);
   }
 
   delete[] wideText;
