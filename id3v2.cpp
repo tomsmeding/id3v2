@@ -71,6 +71,63 @@ void PrintVersion(char *sName)
 }
 
 
+void SetTextField(ID3_Frame *frame, ID3_FieldID fieldID, const char *text)
+{
+  const size_t textLen = strlen(text);
+  wchar_t *wideText = new wchar_t[textLen + 1];
+
+  size_t wideLen = mbstowcs(wideText, text, textLen + 1);
+
+  if (wideLen == -1)
+  {
+    std::cerr << "Invalid multibyte string '" << text << "'!" << std::endl;
+    exit(1);
+  }
+
+  bool ucs2Necessary = false;
+
+  for (size_t i = 0; i < wideLen; i++)
+  {
+    if (wideText[i] >= (1 << 16)) {
+      char buffer[MB_LEN_MAX + 1];
+      size_t len = wctomb(buffer, wideText[i]);
+      if (len < 0)
+      {
+        std::cerr << "Unknown multibyte character found in string '" << text << "'!" << std::endl;
+      }
+      else
+      {
+        buffer[len] = '\0';
+        std::cerr << "Multibyte character '" << buffer << "', found in string '" << text << "', too large to fit in UCS-2!" << std::endl;
+      }
+
+      exit(1);
+    }
+
+    if (wideText[i] >= 128)
+      ucs2Necessary = true;
+  }
+
+  if (ucs2Necessary)
+  {
+    uint16_t *ucs2Text = new uint16_t[wideLen + 1];
+    for (size_t i = 0; i < wideLen; i++)
+      ucs2Text[i] = (uint16_t)wideText[i];
+	ucs2Text[wideLen] = 0;
+
+    frame->Field(fieldID) = ucs2Text;
+
+    delete[] ucs2Text;
+  }
+  else
+  {
+    frame->Field(fieldID) = text;
+  }
+
+  delete[] wideText;
+}
+
+
 extern void ListTag(int argc, char *argv[], int optind, int rfc822);
 extern void PrintFrameHelp(char *sName);
 extern void PrintGenreList();
@@ -414,7 +471,7 @@ int main( int argc, char *argv[])
             myTag.RemoveFrame(pFrame);
           }
           if (strlen(frameList[ii].data) > 0) {
-            myFrame->Field(ID3FN_TEXT) = frameList[ii].data;
+            SetTextField(myFrame, ID3FN_TEXT, frameList[ii].data);
             myTag.AttachFrame(myFrame);
           }
           break;
@@ -442,7 +499,7 @@ int main( int argc, char *argv[])
             }
           }
           
-          myFrame->Field(ID3FN_TEXT) = frameList[ii].data;
+          SetTextField(myFrame, ID3FN_TEXT, frameList[ii].data);
           myTag.AttachFrame(myFrame);
 
           free(newTrackNum);
@@ -461,12 +518,12 @@ int main( int argc, char *argv[])
           text = strchr(frameList[ii].data, ':');
           if (text == NULL) 
           {
-            myFrame->Field(ID3FN_TEXT) = frameList[ii].data;
+            SetTextField(myFrame, ID3FN_TEXT, frameList[ii].data);
           } else {
             *text = '\0';
             text++;
-            myFrame->Field(ID3FN_DESCRIPTION) = frameList[ii].data;
-            myFrame->Field(ID3FN_TEXT) = text;
+            SetTextField(myFrame, ID3FN_DESCRIPTION, frameList[ii].data);
+            SetTextField(myFrame, ID3FN_TEXT, text);
           }
           if (strlen(ID3_GetString(myFrame, ID3FN_TEXT)) > 0) {
             myTag.AttachFrame(myFrame);
@@ -483,7 +540,7 @@ int main( int argc, char *argv[])
           text = strchr(frameList[ii].data, ':');
           if (text == NULL) 
           {
-            myFrame->Field(ID3FN_TEXT) = frameList[ii].data;
+            SetTextField(myFrame, ID3FN_TEXT, frameList[ii].data);
           } else {
          	*text = '\0';
           	text++;
@@ -491,14 +548,14 @@ int main( int argc, char *argv[])
           	lang = strchr(text, ':');
           	if (lang == NULL) 
           	{
-          	  myFrame->Field(ID3FN_DESCRIPTION) = frameList[ii].data;
-          	  myFrame->Field(ID3FN_TEXT) = text;
+              SetTextField(myFrame, ID3FN_DESCRIPTION, frameList[ii].data);
+              SetTextField(myFrame, ID3FN_TEXT, text);
           	} else {
           	  *lang = '\0';
           	  lang++;
-          	  myFrame->Field(ID3FN_DESCRIPTION) = frameList[ii].data;
-              myFrame->Field(ID3FN_TEXT) = text;
-              myFrame->Field(ID3FN_LANGUAGE) = lang;
+              SetTextField(myFrame, ID3FN_DESCRIPTION, frameList[ii].data);
+              SetTextField(myFrame, ID3FN_TEXT, text);
+              SetTextField(myFrame, ID3FN_LANGUAGE, lang);
             }
           }
           /* debug
@@ -564,7 +621,7 @@ int main( int argc, char *argv[])
           }
 
           if (strlen(frameList[ii].data) > 0) {
-            myFrame->Field(ID3FN_URL) = frameList[ii].data;
+            SetTextField(myFrame, ID3FN_URL, frameList[ii].data);
             myTag.AttachFrame(myFrame);
           }
                   
